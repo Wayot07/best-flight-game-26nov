@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SKYLANE — Island Courier</title>
+<style>
+  :root {
+    --canvas: #0a1a22;
+    --panel: rgba(10, 26, 34, 0.62);
+    --hairline: rgba(244, 247, 245, 0.22);
+    --ink: #f4f7f5;
+    --muted: #b9c8c2;
+    --accent: #ffc93c;
+    --warn: #ffb400;
+    --danger: #ff5a4e;
+    --good: #3ddc84;
+    --font-ui: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-readout: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--canvas); color: var(--ink); font-family: var(--font-ui); }
+  #game, #game canvas { position: fixed; inset: 0; display: block; }
+  #game { width: 100%; height: 100%; }
+  #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  #hud { position: fixed; inset: 0; pointer-events: none; font-family: var(--font-ui); }
+  .panel { background: var(--panel); border: 1px solid var(--hairline); border-radius: 10px; backdrop-filter: blur(3px); }
+  .label { font-size: 10px; letter-spacing: 0.14em; color: var(--muted); text-transform: uppercase; }
+  .value { font-family: var(--font-readout); font-size: 26px; font-weight: 700; line-height: 1.05; }
+  .unit { font-size: 11px; color: var(--muted); font-family: var(--font-readout); }
+
+  #hud-flight { position: absolute; top: 14px; left: 14px; display: flex; gap: 10px; }
+  #hud-flight .cell { padding: 8px 14px 9px; text-align: center; min-width: 96px; }
+  #hud-score-box { position: absolute; top: 14px; right: 14px; padding: 8px 16px 9px; text-align: right; }
+  #hud-score-box .value { font-size: 30px; color: var(--accent); }
+  #hud-score-box .sub { font-family: var(--font-readout); font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+  #hud-mid { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); text-align: center; width: 520px; max-width: 46vw; }
+  #hud-next { display: inline-block; padding: 7px 16px; font-family: var(--font-readout); font-size: 15px; font-weight: 700; color: var(--accent); }
+  #hud-msg { margin-top: 8px; font-size: 15px; color: var(--ink); text-shadow: 0 1px 4px rgba(0,0,0,0.7); }
+
+  #hud-warn { position: absolute; top: 34%; left: 50%; transform: translateX(-50%); text-align: center; }
+  #hud-stall, #hud-overspeed { font-family: var(--font-readout); font-size: 22px; font-weight: 800; letter-spacing: 0.12em; padding: 6px 18px; border-radius: 8px; }
+  #hud-stall { color: #fff; background: rgba(255, 90, 78, 0.85); }
+  #hud-overspeed { color: #1a1a1a; background: rgba(255, 180, 0, 0.9); }
+
+  #hud-bars { position: absolute; left: 14px; bottom: 14px; padding: 10px 14px; width: 250px; }
+  #hud-bars .row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+  #hud-bars .row:first-child { margin-top: 0; }
+  #hud-bars .label { width: 44px; flex: none; }
+  .bar { flex: 1; height: 10px; background: rgba(255,255,255,0.16); border-radius: 5px; overflow: hidden; }
+  .bar-fill { height: 100%; background: var(--good); border-radius: 5px; transition: width 0.12s linear; }
+  .bar-fill.low { background: var(--danger); }
+  #hud-fuel { background: #37d67a; }
+  #hud-hull { background: #4fc3f7; }
+  #hud-thr { background: var(--accent); }
+
+  #hud-map { position: absolute; right: 14px; bottom: 14px; padding: 8px; }
+  #minimap { display: block; width: 180px; height: 180px; border-radius: 6px; }
+  #hud-map .label { display: block; text-align: center; margin-top: 5px; }
+
+  #hud-help { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); font-size: 12px; color: var(--muted); text-shadow: 0 1px 3px rgba(0,0,0,0.8); text-align: center; }
+  #hud-help b { color: var(--ink); }
+
+  .screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(6, 18, 24, 0.45); pointer-events: none; }
+  /* The title card sits high so the courier on the runway shows below it. */
+  #screen-title { align-items: flex-start; padding-top: 7vh; background: rgba(6, 18, 24, 0.25); }
+  /* The same for the delivery card: the courier sits on the strip below it. */
+  #screen-landed { align-items: flex-start; padding-top: 7vh; }
+  .screen .card { text-align: center; padding: 34px 46px; max-width: 640px; }
+  .screen h1 { margin: 0 0 4px; font-size: 44px; letter-spacing: 0.06em; }
+  .screen h1 .accent { color: var(--accent); }
+  .screen h2 { margin: 0 0 10px; font-size: 30px; }
+  .screen p { margin: 8px 0; font-size: 16px; color: var(--ink); line-height: 1.5; }
+  .screen .dim { color: var(--muted); font-size: 14px; }
+  .screen .keys { font-family: var(--font-readout); font-size: 13px; color: var(--muted); line-height: 1.9; }
+  .screen .keys b { color: var(--ink); }
+  .screen .big { font-family: var(--font-readout); font-size: 17px; color: var(--accent); }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three/three.module.min.js"
+  }
+}
+</script>
+</head>
+<body>
+<canvas id="game" aria-label="SKYLANE Island Courier: fly the courier plane through the rings and land on the runway"></canvas>
+<p id="status" role="status" aria-live="polite"></p>
+
+<div id="hud">
+  <div id="hud-flight">
+    <div class="cell panel"><div class="label">Speed</div><div class="value"><span id="hud-speed">0</span> <span class="unit">kt</span></div></div>
+    <div class="cell panel"><div class="label">Altitude</div><div class="value"><span id="hud-alt">0</span> <span class="unit">ft</span></div></div>
+    <div class="cell panel"><div class="label">Heading</div><div class="value" id="hud-hdg">090° E</div></div>
+  </div>
+
+  <div id="hud-score-box" class="panel">
+    <div class="label">Score</div>
+    <div class="value" id="hud-score">0</div>
+    <div class="sub"><span id="hud-sortie">SORTIE 1</span> · RINGS <span id="hud-rings">0/6</span> · <span id="hud-best">BEST 0</span></div>
+  </div>
+
+  <div id="hud-mid">
+    <div id="hud-next" class="panel">NEXT RING</div>
+    <div id="hud-msg"></div>
+  </div>
+
+  <div id="hud-warn">
+    <div id="hud-stall" style="display:none">STALL — NOSE DOWN, ADD THROTTLE</div>
+    <div id="hud-overspeed" style="display:none">OVERSPEED</div>
+  </div>
+
+  <div id="hud-bars" class="panel">
+    <div class="row"><span class="label">Throt</span><div class="bar"><div class="bar-fill" id="hud-thr" style="width:0%"></div></div></div>
+    <div class="row"><span class="label">Fuel</span><div class="bar"><div class="bar-fill" id="hud-fuel" style="width:100%"></div></div></div>
+    <div class="row"><span class="label">Hull</span><div class="bar"><div class="bar-fill" id="hud-hull" style="width:100%"></div></div></div>
+  </div>
+
+  <div id="hud-map" class="panel">
+    <canvas id="minimap" width="180" height="180"></canvas>
+    <span class="label">Chart — Islands</span>
+  </div>
+
+  <div id="hud-help"><b>← →</b> bank &nbsp; <b>↑ ↓</b> pitch &nbsp; <b>W / S</b> throttle &nbsp; <b>Space</b> brake &nbsp; <b>P</b> pause &nbsp; <b>R</b> restart &nbsp; <b>M</b> sound</div>
+</div>
+
+<div id="screen-title" class="screen">
+  <div class="card panel">
+    <h1>SKY<span class="accent">LANE</span></h1>
+    <p class="big">Island Courier — fly the mail run, ring to ring, and bring her home.</p>
+    <p>Chase the gold rings around the archipelago, mind your fuel, and land on the
+    strip to deliver the sortie. Green rings top up the tank. Three hard knocks
+    and the courier is out of planes.</p>
+    <p class="keys"><b>← →</b> bank &amp; turn &nbsp;·&nbsp; <b>↑ ↓</b> pitch &nbsp;·&nbsp; <b>W / S</b> throttle<br>
+    <b>Space</b> brake &nbsp;·&nbsp; <b>P</b> pause &nbsp;·&nbsp; <b>R</b> restart &nbsp;·&nbsp; <b>M</b> sound</p>
+    <p class="dim">Press <b>Enter</b> or click to fly.</p>
+  </div>
+</div>
+
+<div id="screen-pause" class="screen" style="display:none">
+  <div class="card panel">
+    <h2>Paused</h2>
+    <p class="dim">Press P or Enter to keep flying.</p>
+  </div>
+</div>
+
+<div id="screen-over" class="screen" style="display:none">
+  <div class="card panel">
+    <h2>Flight Over</h2>
+    <p id="over-score" class="big"></p>
+    <p class="dim">Press Enter or R to fly again.</p>
+  </div>
+</div>
+
+<div id="screen-landed" class="screen" style="display:none">
+  <div class="card panel">
+    <h2>Delivered!</h2>
+    <p id="landed-score" class="big"></p>
+    <p class="dim">Press Enter to fly the next sortie.</p>
+  </div>
+</div>
+
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
